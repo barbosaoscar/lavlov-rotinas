@@ -669,17 +669,22 @@ async function saveRotina(f) {
 
 /* ---------- admin: equipe ---------- */
 function equipeHtml() {
-  const fs = S.d.funcionarios.slice().sort((a, b) => (b.ativo - a.ativo) || a.nome.localeCompare(b.nome, "pt-BR"));
+  const byName = (a, b) => a.nome.localeCompare(b.nome, "pt-BR");
+  const ativos = S.d.funcionarios.filter(f => f.ativo).sort(byName);
+  const inativos = S.d.funcionarios.filter(f => !f.ativo).sort(byName);
   const pOpts = cur => S.d.perfis.slice().sort(byOrd).map(p => '<option value="' + p.id + '"' + (p.id === cur ? " selected" : "") + '>' + esc(p.nome) + '</option>').join("");
-  return '<div class="page"><div class="page-h"><h1>Equipe</h1><button class="btn primary" data-act="func-new">Novo funcionário</button></div><div class="panel">' +
-    '<p class="hint">Cada pessoa tem um PIN de 4 a 6 números, um perfil e as lavanderias em que pode dar baixa. O perfil define quais rotinas ela vê.</p>' +
-    fs.map(f => '<div class="list-row" data-id="' + f.id + '"' + (f.ativo ? "" : ' style="opacity:.55"') + '><input type="text" class="grow f-nome" value="' + esc(f.nome) + '" aria-label="Nome"><select class="f-perfil" aria-label="Perfil">' + pOpts(f.perfil_id) + '</select>' +
-      '<label style="display:flex;gap:6px;align-items:center;font-weight:700"><input type="checkbox" class="f-ativo"' + (f.ativo ? " checked" : "") + '> Ativo</label>' +
+  const row = f => '<div class="list-row" data-id="' + f.id + '"><input type="text" class="grow f-nome" value="' + esc(f.nome) + '" aria-label="Nome"><select class="f-perfil" aria-label="Perfil">' + pOpts(f.perfil_id) + '</select>' +
       (isAdmPerfil(f.perfil_id) ? '<span class="tag">todas as lavanderias</span>' : '<span class="checks">' + units().map(u => '<label><input type="checkbox" class="f-un" value="' + u.id + '"' + (funcUnits(f.id).has(u.id) ? " checked" : "") + '> ' + esc(shortUnit(u.id)) + '</label>').join("") + '</span>' + (funcUnits(f.id).size ? "" : '<span class="tag bad">nenhuma lavanderia</span>')) +
       (f.user_id ? '<span class="tag">sua conta</span>' : "") +
       '<button class="btn small" data-act="func-pin" data-id="' + f.id + '">Definir PIN</button><button class="btn small primary" data-act="func-save" data-id="' + f.id + '">Salvar</button>' +
-      (f.user_id ? "" : '<button class="btn small danger" data-act="func-del" data-id="' + f.id + '">Excluir</button>') + '</div>').join("") +
-    '</div></div>';
+      (f.user_id ? "" : '<button class="btn small" data-act="func-ativo" data-id="' + f.id + '" data-v="0">Desativar</button><button class="btn small danger" data-act="func-del" data-id="' + f.id + '">Excluir</button>') + '</div>';
+  const rowInativo = f => '<div class="list-row" style="opacity:.6"><span class="grow"><strong>' + esc(f.nome) + '</strong> <span class="muted">· ' + esc((S.idx.perfil.get(f.perfil_id) || {}).nome || "sem perfil") + '</span></span>' +
+      '<button class="btn small primary" data-act="func-ativo" data-id="' + f.id + '" data-v="1">Reativar</button><button class="btn small danger" data-act="func-del" data-id="' + f.id + '">Excluir</button></div>';
+  return '<div class="page"><div class="page-h"><h1>Equipe</h1><button class="btn primary" data-act="func-new">Novo funcionário</button></div><div class="panel">' +
+    '<p class="hint">Cada pessoa tem um PIN de 4 a 6 números, um perfil e as lavanderias em que pode dar baixa. O perfil define quais rotinas ela vê.</p>' +
+    (ativos.length ? ativos.map(row).join("") : '<p class="muted">Nenhum funcionário ativo.</p>') + '</div>' +
+    (inativos.length ? '<div class="panel"><h2>Inativos</h2><p class="hint">Não conseguem entrar com o PIN. O histórico deles continua no Registro e no Relatório.</p>' + inativos.map(rowInativo).join("") + '</div>' : "") +
+    '</div>';
 }
 const isAdmPerfil = pid => !!(S.idx.perfil.get(pid) || {}).is_admin;
 const funcUnits = fid => new Set(S.d.funcionario_unidades.filter(x => x.funcionario_id === fid).map(x => x.unidade_id));
@@ -871,7 +876,7 @@ document.addEventListener("click", async ev => {
     }
     case "func-save": {
       const row = el.closest(".list-row");
-      const { error } = await sb.from("funcionarios").update({ nome: row.querySelector(".f-nome").value.trim(), perfil_id: row.querySelector(".f-perfil").value, ativo: row.querySelector(".f-ativo").checked }).eq("id", el.dataset.id).select("id");
+      const { error } = await sb.from("funcionarios").update({ nome: row.querySelector(".f-nome").value.trim(), perfil_id: row.querySelector(".f-perfil").value }).eq("id", el.dataset.id).select("id");
       if (error) return toast(cleanErr(error));
       const marcadas = [...row.querySelectorAll(".f-un:checked")].map(i => i.value);
       if (row.querySelector(".f-un")) {
@@ -882,6 +887,12 @@ document.addEventListener("click", async ev => {
       await refresh(); return toast("Salvo.");
     }
     case "func-pin": return pinAdminModal(el.dataset.id);
+    case "func-ativo": {
+      const ativo = el.dataset.v === "1";
+      const { error } = await sb.from("funcionarios").update({ ativo }).eq("id", el.dataset.id).select("id");
+      if (error) return toast(cleanErr(error));
+      await refresh(); return toast(ativo ? "Funcionário reativado." : "Funcionário desativado. Ele foi para a lista de inativos.");
+    }
     case "func-del": {
       if (el.dataset.confirm !== "1") { el.dataset.confirm = "1"; el.textContent = "Confirmar exclusão"; return; }
       const { error } = await sb.rpc("excluir_funcionario", { p_id: el.dataset.id });
