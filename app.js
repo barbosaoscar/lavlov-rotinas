@@ -263,7 +263,7 @@ function missoesHtml() {
   if (!abertas.length && !feitasHoje.length && !S.isAdmin) return "";
   const add = S.isAdmin ? '<button class="btn small primary" data-act="mis-new" style="margin-left:auto">+ Nova missão</button>' : "";
   const card = m => {
-    const st = m.status === "aberta" ? missaoState(m) : { cls: "feito", txt: "Concluída " + fmtTime(m.concluida_em) + " · " + funcName(m.concluida_por) };
+    const st = m.status === "aberta" ? missaoState(m) : { cls: "feito", txt: (m.problema ? "Problema registrado " : "Concluída ") + fmtTime(m.concluida_em) + " · " + funcName(m.concluida_por) };
     const onde = m.unidade_id ? "" : " · qualquer lavanderia";
     const edit = S.isAdmin && m.status === "aberta" ? '<button class="btn small" data-act="mis-edit" data-id="' + m.id + '">Editar</button>' : "";
     const btns = m.status === "aberta"
@@ -297,7 +297,9 @@ function cardHtml(c) {
 }
 function corrHtml(c) {
   const t = S.idx.tarefa.get(c.tarefa_id); const r = t && S.idx.rotina.get(t.rotina_id);
-  return '<article class="corr"><h3>' + esc(c.descricao) + '</h3><div class="muted">' + esc(r ? r.titulo : "") + (t ? " · " + esc(tarefaLabel(t)) : "") + '</div><div class="muted">Aberta ' + esc(fmtDT(c.aberta_em)) + ' por ' + esc(funcName(c.aberta_por)) + '</div><div class="acts">' +
+  const mi = c.missao_id && S.d.missoes.find(x => x.id === c.missao_id);
+  const origem = mi ? "Missão extra · " + esc(mi.titulo) : esc(r ? r.titulo : "") + (t ? " · " + esc(tarefaLabel(t)) : "");
+  return '<article class="corr"><h3>' + esc(c.descricao) + '</h3><div class="muted">' + origem + '</div><div class="muted">Aberta ' + esc(fmtDT(c.aberta_em)) + ' por ' + esc(funcName(c.aberta_por)) + '</div><div class="acts">' +
     (c.foto_path ? '<button class="btn small" data-act="foto" data-path="' + esc(c.foto_path) + '">Ver foto</button>' : "") +
     '<button class="btn small primary" data-act="encerrar" data-id="' + c.id + '">Encerrar</button></div></article>';
 }
@@ -318,7 +320,7 @@ function logHtml() {
     if (day !== lastDay) { h += '<div class="log-day">' + esc(DIAS[dow(day)].charAt(0).toUpperCase() + DIAS[dow(day)].slice(1) + ", " + Number(day.slice(8)) + " de " + MESES[Number(day.slice(5, 7)) - 1]) + '</div>'; lastDay = day; }
     if (row.kind === "mis") {
       const m = row.m;
-      h += '<div class="log-row"><span class="dot" style="background:var(--brand)"></span><div><div class="t">Missão: ' + esc(m.titulo) + '</div><div class="s">' + esc(funcName(m.concluida_por)) + (m.obs ? " · " + esc(m.obs) : "") + '</div>' +
+      h += '<div class="log-row"><span class="dot' + (m.problema ? ' problema"' : '" style="background:var(--brand)"') + '></span><div><div class="t">Missão: ' + esc(m.titulo) + '</div><div class="s">' + (m.problema ? "Problema · " : "") + esc(funcName(m.concluida_por)) + (m.obs ? " · " + esc(m.obs) : "") + '</div>' +
         (S.isAdmin ? '<div style="display:flex;gap:6px;margin-top:4px">' + (m.foto_path ? '<button class="btn small" data-act="foto" data-path="' + esc(m.foto_path) + '">Foto</button>' : "") + '<button class="btn small" data-act="undo-admin" data-kind="mis" data-id="' + m.id + '">Desfazer</button></div>' : "") +
         '</div><span class="hr num">' + fmtTime(m.concluida_em) + '</span></div>';
       continue;
@@ -428,7 +430,7 @@ function moreModal(tid) {
     '<div class="row2">' + dateField + '<div class="field"><label for="m-time">Hora</label><input type="time" id="m-time" value="' + nowTime() + '"></div></div>' +
     '<div class="field"><span class="lbl">Como ficou</span><div class="choice"><button type="button" class="ok" data-act="m-status" data-v="feita" aria-pressed="true">✓ Tudo certo</button><button type="button" class="bad" data-act="m-status" data-v="problema" aria-pressed="false">⚠ Problema</button></div></div>' +
     '<div class="field"><label for="m-obs" id="m-obs-l">Observação (opcional)</label><textarea id="m-obs" maxlength="600"></textarea></div>' +
-    '<div class="field"><span class="lbl" id="m-foto-l">Foto (opcional)</span><label class="photo-btn" for="m-foto">📷 Tirar ou escolher foto</label><input type="file" id="m-foto" accept="image/*" capture="environment" hidden><img id="m-prev" class="photo-prev" alt="" hidden></div>' +
+    '<div class="field"><span class="lbl" id="m-foto-l">Foto (opcional)</span><label class="photo-btn" for="m-foto">📷 Tirar foto ou escolher da galeria</label><input type="file" id="m-foto" accept="image/*" hidden><img id="m-prev" class="photo-prev" alt="" hidden></div>' +
     '<p class="err" id="m-err"></p><div class="acts"><button type="button" class="btn" data-act="close">Cancelar</button><button type="submit" class="btn primary">Salvar</button></div></form></div>');
 }
 function setMoreStatus(v) {
@@ -486,7 +488,8 @@ async function verFoto(path) {
 function encerrarModal(id) {
   const c = S.d.corretivas.find(x => x.id === id);
   openModal('<div class="modal-bg"><form class="modal" id="f-enc" data-id="' + id + '" role="dialog" aria-modal="true" aria-labelledby="mt"><h2 id="mt">Encerrar corretiva</h2><p>' + esc(c.descricao) + '</p>' +
-    '<div class="field"><label for="e-obs">O que foi feito</label><textarea id="e-obs"></textarea></div><p class="err" id="e-err"></p>' +
+    '<div class="field"><label for="e-obs">O que foi feito</label><textarea id="e-obs"></textarea></div>' +
+    '<div class="field"><span class="lbl">Foto do conserto (opcional)</span><label class="photo-btn" for="e-foto">📷 Tirar foto ou escolher da galeria</label><input type="file" id="e-foto" accept="image/*" hidden><img id="e-prev" class="photo-prev" alt="" hidden></div><p class="err" id="e-err"></p>' +
     '<div class="acts"><button type="button" class="btn" data-act="close">Cancelar</button><button class="btn primary" type="submit">Encerrar</button></div></form></div>');
 }
 
@@ -504,13 +507,20 @@ async function misTap(id) {
 let misMore = null;
 function misMoreModal(id) {
   const m = S.d.missoes.find(x => x.id === id); const T = today();
-  misMore = { id, file: null };
+  misMore = { id, file: null, status: "feita" };
   openModal('<div class="modal-bg"><form class="modal" id="f-mis-more" role="dialog" aria-modal="true" aria-labelledby="mt"><h2 id="mt">' + esc(m.titulo) + '</h2>' +
     '<p class="muted" style="margin:0">Missão extra · ' + esc(shortUnit(S.unit)) + '</p>' +
     '<div class="row2"><div class="field"><label for="mm-date">Dia em que foi feita</label><input type="date" id="mm-date" value="' + T + '" max="' + T + '"></div><div class="field"><label for="mm-time">Hora</label><input type="time" id="mm-time" value="' + nowTime() + '"></div></div>' +
-    '<div class="field"><label for="mm-obs">Observação (opcional)</label><textarea id="mm-obs" maxlength="600"></textarea></div>' +
-    '<div class="field"><span class="lbl">Foto (opcional)</span><label class="photo-btn" for="mm-foto">📷 Tirar ou escolher foto</label><input type="file" id="mm-foto" accept="image/*" capture="environment" hidden><img id="mm-prev" class="photo-prev" alt="" hidden></div>' +
+    '<div class="field"><span class="lbl">Como ficou</span><div class="choice"><button type="button" class="ok" data-act="mm-status" data-v="feita" aria-pressed="true">✓ Tudo certo</button><button type="button" class="bad" data-act="mm-status" data-v="problema" aria-pressed="false">⚠ Problema</button></div></div>' +
+    '<div class="field"><label for="mm-obs" id="mm-obs-l">Observação (opcional)</label><textarea id="mm-obs" maxlength="600"></textarea></div>' +
+    '<div class="field"><span class="lbl" id="mm-foto-l">Foto (opcional)</span><label class="photo-btn" for="mm-foto">📷 Tirar foto ou escolher da galeria</label><input type="file" id="mm-foto" accept="image/*" hidden><img id="mm-prev" class="photo-prev" alt="" hidden></div>' +
     '<p class="err" id="mm-err"></p><div class="acts"><button type="button" class="btn" data-act="close">Cancelar</button><button type="submit" class="btn primary">Concluir missão</button></div></form></div>');
+}
+function setMisStatus(v) {
+  misMore.status = v;
+  $modal.querySelectorAll('[data-act="mm-status"]').forEach(b => b.setAttribute("aria-pressed", String(b.dataset.v === v)));
+  document.getElementById("mm-obs-l").textContent = v === "problema" ? "Descreva o problema (obrigatório)" : "Observação (opcional)";
+  document.getElementById("mm-foto-l").textContent = v === "problema" ? "Foto (obrigatória)" : "Foto (opcional)";
 }
 async function submitMisMore(f) {
   const err = f.querySelector("#mm-err"); err.textContent = "";
@@ -518,13 +528,16 @@ async function submitMisMore(f) {
   const day = f.querySelector("#mm-date").value || today();
   if (day > today()) { err.textContent = "A data não pode ser no futuro."; return; }
   let when = new Date(day + "T" + (f.querySelector("#mm-time").value || nowTime()) + ":00"); if (when > new Date()) when = new Date();
+  const obsTxt = f.querySelector("#mm-obs").value.trim();
+  if (misMore.status === "problema" && (!obsTxt || !misMore.file)) { err.textContent = "Para registrar problema, descreva e tire uma foto."; return; }
   const btns = f.querySelectorAll("button"); btns.forEach(b => b.disabled = true);
   try {
     let foto = null;
     if (misMore.file) foto = await uploadPhoto(await compressImage(misMore.file), S.unit);
-    const { error } = await sb.rpc("concluir_missao", { p_token: S.token, p_missao: m.id, p_unidade: S.unit, p_obs: f.querySelector("#mm-obs").value.trim() || null, p_foto: foto, p_feito_em: when.toISOString() });
+    const { error } = await sb.rpc("concluir_missao", { p_token: S.token, p_missao: m.id, p_unidade: S.unit, p_obs: f.querySelector("#mm-obs").value.trim() || null, p_foto: foto, p_feito_em: when.toISOString(), p_status: misMore.status });
     if (error) throw error;
-    closeModal(); await refresh(); showUndo(m.titulo + " · " + shortUnit(S.unit), m.id, "mis");
+    const prob = misMore.status === "problema";
+    closeModal(); await refresh(); showUndo(m.titulo + " · " + shortUnit(S.unit) + (prob ? " (problema enviado)" : ""), m.id, "mis");
   } catch (e) { err.textContent = cleanErr(e); btns.forEach(b => b.disabled = false); if (!S.op) { closeModal(); render(); } }
 }
 function misAdminModal(id) {
@@ -656,15 +669,16 @@ async function saveRotina(f) {
 
 /* ---------- admin: equipe ---------- */
 function equipeHtml() {
-  const fs = S.d.funcionarios.slice().sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
+  const fs = S.d.funcionarios.slice().sort((a, b) => (b.ativo - a.ativo) || a.nome.localeCompare(b.nome, "pt-BR"));
   const pOpts = cur => S.d.perfis.slice().sort(byOrd).map(p => '<option value="' + p.id + '"' + (p.id === cur ? " selected" : "") + '>' + esc(p.nome) + '</option>').join("");
   return '<div class="page"><div class="page-h"><h1>Equipe</h1><button class="btn primary" data-act="func-new">Novo funcionário</button></div><div class="panel">' +
     '<p class="hint">Cada pessoa tem um PIN de 4 a 6 números, um perfil e as lavanderias em que pode dar baixa. O perfil define quais rotinas ela vê.</p>' +
-    fs.map(f => '<div class="list-row" data-id="' + f.id + '"><input type="text" class="grow f-nome" value="' + esc(f.nome) + '" aria-label="Nome"><select class="f-perfil" aria-label="Perfil">' + pOpts(f.perfil_id) + '</select>' +
+    fs.map(f => '<div class="list-row" data-id="' + f.id + '"' + (f.ativo ? "" : ' style="opacity:.55"') + '><input type="text" class="grow f-nome" value="' + esc(f.nome) + '" aria-label="Nome"><select class="f-perfil" aria-label="Perfil">' + pOpts(f.perfil_id) + '</select>' +
       '<label style="display:flex;gap:6px;align-items:center;font-weight:700"><input type="checkbox" class="f-ativo"' + (f.ativo ? " checked" : "") + '> Ativo</label>' +
       (isAdmPerfil(f.perfil_id) ? '<span class="tag">todas as lavanderias</span>' : '<span class="checks">' + units().map(u => '<label><input type="checkbox" class="f-un" value="' + u.id + '"' + (funcUnits(f.id).has(u.id) ? " checked" : "") + '> ' + esc(shortUnit(u.id)) + '</label>').join("") + '</span>' + (funcUnits(f.id).size ? "" : '<span class="tag bad">nenhuma lavanderia</span>')) +
       (f.user_id ? '<span class="tag">sua conta</span>' : "") +
-      '<button class="btn small" data-act="func-pin" data-id="' + f.id + '">Definir PIN</button><button class="btn small primary" data-act="func-save" data-id="' + f.id + '">Salvar</button></div>').join("") +
+      '<button class="btn small" data-act="func-pin" data-id="' + f.id + '">Definir PIN</button><button class="btn small primary" data-act="func-save" data-id="' + f.id + '">Salvar</button>' +
+      (f.user_id ? "" : '<button class="btn small danger" data-act="func-del" data-id="' + f.id + '">Excluir</button>') + '</div>').join("") +
     '</div></div>';
 }
 const isAdmPerfil = pid => !!(S.idx.perfil.get(pid) || {}).is_admin;
@@ -778,7 +792,7 @@ async function runReport() {
         if (R.un && un !== R.un) continue;
         const T = today();
         let sit;
-        if (m.status === "concluida") sit = m.prazo && isoLocal(m.concluida_em) > m.prazo ? "atraso" : "prazo";
+        if (m.status === "concluida") sit = m.problema ? "problema" : m.prazo && isoLocal(m.concluida_em) > m.prazo ? "atraso" : "prazo";
         else if (m.prazo && m.prazo < T) sit = "nao_feita"; else continue;
         if (R.sit && R.sit !== sit) continue;
         R.rows.push({ e: { data_ref: ref, feito_em: m.concluida_em, funcionario_id: m.concluida_por, obs: m.obs, foto_path: m.foto_path }, sit, un: un ? S.idx.unidade.get(un).nome : "Qualquer", rot: "Missão extra", item: m.titulo, cat: "Missão extra" });
@@ -823,6 +837,7 @@ document.addEventListener("click", async ev => {
       if (el.dataset.confirm !== "1") { el.dataset.confirm = "1"; el.textContent = "Confirmar"; return; }
       return undo(el.dataset.id, el.dataset.kind);
     case "mis-tap": return misTap(el.dataset.id);
+    case "mm-status": return setMisStatus(el.dataset.v);
     case "mis-more": return misMoreModal(el.dataset.id);
     case "mis-new": return misAdminModal(null);
     case "mis-edit": return misAdminModal(el.dataset.id);
@@ -867,6 +882,12 @@ document.addEventListener("click", async ev => {
       await refresh(); return toast("Salvo.");
     }
     case "func-pin": return pinAdminModal(el.dataset.id);
+    case "func-del": {
+      if (el.dataset.confirm !== "1") { el.dataset.confirm = "1"; el.textContent = "Confirmar exclusão"; return; }
+      const { error } = await sb.rpc("excluir_funcionario", { p_id: el.dataset.id });
+      if (error) { el.dataset.confirm = ""; el.textContent = "Excluir"; return toast(cleanErr(error), 7000); }
+      await refresh(); return toast("Funcionário excluído.");
+    }
     case "cad-save": return saveSimple(el.dataset.tab);
     case "maq-save": return saveMaquinas();
     case "rep-run": return runReport();
@@ -876,6 +897,10 @@ document.addEventListener("click", async ev => {
 });
 document.addEventListener("change", ev => {
   if (ev.target.id === "r-esc") document.getElementById("r-itens-f").hidden = ev.target.value !== "itens";
+  if (ev.target.id === "e-foto") {
+    const file = ev.target.files && ev.target.files[0]; const img = document.getElementById("e-prev");
+    if (file) { img.src = URL.createObjectURL(file); img.hidden = false; } else img.hidden = true;
+  }
   if (ev.target.id === "mm-foto" && misMore) {
     const file = ev.target.files && ev.target.files[0]; misMore.file = file || null;
     const img = document.getElementById("mm-prev");
@@ -908,8 +933,14 @@ document.addEventListener("submit", async ev => {
   if (f.id === "f-mis") return saveMissao(f);
   if (f.id === "f-rot") return saveRotina(f);
   if (f.id === "f-enc") {
-    const { error } = await sb.rpc("encerrar_corretiva", { p_id: f.dataset.id, p_obs: f.querySelector("#e-obs").value });
-    if (error) { f.querySelector("#e-err").textContent = cleanErr(error); return; }
+    const btns = f.querySelectorAll("button"); btns.forEach(b => b.disabled = true);
+    try {
+      const file = f.querySelector("#e-foto").files[0];
+      const c = S.d.corretivas.find(x => x.id === f.dataset.id);
+      const foto = file ? await uploadPhoto(await compressImage(file), c.unidade_id) : null;
+      const { error } = await sb.rpc("encerrar_corretiva", { p_id: f.dataset.id, p_obs: f.querySelector("#e-obs").value, p_foto: foto });
+      if (error) throw error;
+    } catch (e) { f.querySelector("#e-err").textContent = cleanErr(e); btns.forEach(b => b.disabled = false); return; }
     closeModal(); await refresh(); return toast("Corretiva encerrada.");
   }
   if (f.id === "f-pin") {
